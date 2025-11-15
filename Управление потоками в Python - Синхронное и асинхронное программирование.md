@@ -265,6 +265,8 @@ import multiprocessing
 import asyncio
 import requests
 import aiohttp
+import ssl
+import certifi
 
 # Синхронная версия
 def sync_download(url, name):
@@ -294,14 +296,44 @@ def process_download(url, name):
 async def async_download(session, url, name):
     """Асинхронная загрузка URL"""
     print(f"Асинхронная загрузка {name} начата")
-    async with session.get(url) as response:
-        content = await response.read()
-        print(f"Асинхронная загрузка {name} завершена, статус: {response.status}")
-        return len(content)
+    try:
+        async with session.get(url) as response:
+            content = await response.read()
+            print(f"Асинхронная загрузка {name} завершена, статус: {response.status}")
+            return len(content)
+    except Exception as e:
+        print(f"Ошибка при загрузке {name}: {e}")
+        return 0
 
 async def main_async_download():
     """Основная асинхронная функция"""
-    async with aiohttp.ClientSession() as session:
+    # Создаем кастомный SSL-контекст для обхода проблем с сертификатами
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    
+    # Альтернативное решение: отключаем проверку SSL (не рекомендуется для продакшена)
+    # ssl_context = ssl.create_default_context()
+    # ssl_context.check_hostname = False
+    # ssl_context.verify_mode = ssl.CERT_NONE
+    
+    connector = aiohttp.TCPConnector(ssl=ssl_context)
+    
+    async with aiohttp.ClientSession(connector=connector) as session:
+        urls = [
+            ("https://httpbin.org/delay/1", "Сайт 1"),
+            ("https://httpbin.org/delay/2", "Сайт 2"), 
+            ("https://httpbin.org/delay/1", "Сайт 3")
+        ]
+        
+        tasks = [async_download(session, url, name) for url, name in urls]
+        results = await asyncio.gather(*tasks)
+        return results
+
+# Альтернативная асинхронная версия с отключенной SSL-проверкой
+async def main_async_download_no_ssl():
+    """Асинхронная версия с отключенной SSL-проверкой"""
+    connector = aiohttp.TCPConnector(ssl=False)  # Отключаем SSL проверку
+    
+    async with aiohttp.ClientSession(connector=connector) as session:
         urls = [
             ("https://httpbin.org/delay/1", "Сайт 1"),
             ("https://httpbin.org/delay/2", "Сайт 2"), 
@@ -360,13 +392,44 @@ def run_async():
     
     print(f"Общее время: {time.time() - start_time:.2f} секунд")
 
+def run_async_no_ssl():
+    """Запуск асинхронной версии с отключенной SSL-проверкой"""
+    print("=== АСИНХРОННАЯ ЗАГРУЗКА (без SSL) ===")
+    start_time = time.time()
+    
+    asyncio.run(main_async_download_no_ssl())
+    
+    print(f"Общее время: {time.time() - start_time:.2f} секунд")
+
+# Установите certifi если еще не установлен
+def install_certifi():
+    try:
+        import certifi
+    except ImportError:
+        print("Установка certifi...")
+        import subprocess
+        import sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "certifi"])
+        import certifi
+    return certifi
+
 # Запуск всех примеров
 if __name__ == "__main__":
+    # Убедимся, что certifi установлен
+    certifi = install_certifi()
+    
     run_sync()
     print("\n" + "="*50 + "\n")
     run_threads() 
     print("\n" + "="*50 + "\n")
-    run_async()
+    
+    # Пробуем оба варианта асинхронной загрузки
+    try:
+        run_async()
+    except Exception as e:
+        print(f"Ошибка в асинхронной версии с SSL: {e}")
+        print("Пробуем версию без SSL проверки...")
+        run_async_no_ssl()
 ```
 
 ## Часть 6: Ключевые концепции асинхронности
